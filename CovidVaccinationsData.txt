@@ -1,0 +1,211 @@
+-- Create a table for the Covid Death Data 
+
+CREATE TABLE IF NOT EXISTS public."CovidDeaths"
+(
+    iso_code character varying COLLATE pg_catalog."default",
+    continent character varying COLLATE pg_catalog."default",
+    location character varying COLLATE pg_catalog."default",
+    date date,
+    population bigint,
+    total_cases integer,
+    new_cases integer,
+    new_cases_smoothed numeric,
+    total_deaths integer,
+    new_deaths integer,
+    new_deaths_smoothed numeric,
+    total_cases_per_million numeric,
+    new_cases_per_million numeric,
+    new_cases_smoothed_per_million numeric,
+    total_deaths_per_million numeric,
+    new_deaths_per_million numeric,
+    new_deaths_smoothed_per_million numeric,
+    reproduction_rate numeric,
+    icu_patients integer,
+    icu_patients_per_million numeric,
+    hosp_patients integer,
+    hosp_patients_per_million numeric,
+    weekly_icu_admissions numeric,
+    weekly_icu_admissions_per_million numeric,
+    weekly_hosp_admissions numeric,
+    weekly_hosp_admissions_per_million numeric
+);
+
+-- Create the table for Covid Vaccinations Data 
+
+CREATE TABLE IF NOT EXISTS public."CovidVaccinations"
+(
+    iso_code character varying COLLATE pg_catalog."default",
+    continent character varying COLLATE pg_catalog."default",
+    location character varying COLLATE pg_catalog."default",
+    date date,
+    new_tests integer,
+    total_tests integer,
+    total_tests_per_thousand numeric,
+    new_tests_per_thousand numeric,
+    new_tests_smoothed integer,
+    new_tests_smoothed_per_thousand numeric,
+    positive_rate numeric,
+    test_per_case numeric,
+    test_units character varying COLLATE pg_catalog."default",
+    total_vaccinations character varying COLLATE pg_catalog."default",
+    people_vaccinated bigint,
+    people_fully_vaccinated bigint,
+    new_vaccinations bigint,
+    new_vaccinations_smoothed integer,
+    total_vaccinations_per_hundred numeric,
+    people_vaccinated_per_hundred numeric,
+    people_fully_vaccinated_per_hundred numeric,
+    new_vaccinations_smoothed_per_million integer,
+    stringency_index numeric,
+    population_density numeric,
+    median_age numeric,
+    aged_65_older numeric,
+    aged_70_older numeric,
+    gdp_per_capita numeric,
+    extreme_poverty numeric,
+    cardiovasc_death_rate numeric,
+    diabetes_prevalence numeric,
+    female_smokers numeric,
+    male_smokers numeric,
+    handwashing_facilities numeric,
+    hospital_beds_per_thousand numeric,
+    life_expectancy numeric,
+    human_development_index numeric
+);
+
+
+--Select the data that we will be using 
+SELECT location, date, total_cases, new_cases, total_deaths, population
+	FROM public."CovidDeaths"
+	Order By 1,2
+	
+-- Looking at the Total Cases vs. Total Deaths
+-- Shows the rough percentage likelihood of dying if you contract covid in your country.
+SELECT location, date, total_cases, total_deaths, cast(total_deaths as decimal)/total_cases*100 as death_percentage
+	FROM Public."CovidDeaths"
+	WHERE total_deaths IS NOT NULL 
+	Order By 1,2 
+
+-- Specifically see what the Death Percentage is at in the United States
+SELECT location, date, total_cases, total_deaths, cast(total_deaths as decimal)/total_cases*100 as death_percentage
+	FROM Public."CovidDeaths"
+	WHERE location = 'United States' and total_deaths IS NOT NULL
+	Order By 1,2 
+	
+-- Looking at Total Cases vs Population
+-- Shows what percentage of population contracted covid 
+SELECT location, date, population, total_cases, cast(total_cases as decimal)/population*100 as percent_of_pop_infected
+	FROM Public."CovidDeaths"
+	WHERE location = 'United States'
+	Order By 1,2
+	
+-- Looking at countries with Highest Infection Rate compared to Population
+SELECT location, population, max(total_cases) as highest_infection_rate, (max(total_cases/cast(population as decimal)* 100)) as percent_of_pop_infected
+	FROM Public."CovidDeaths"
+	WHERE population IS NOT NULL and total_cases IS NOT Null and continent IS NOT NULL
+	Group By location, population
+	Order By percent_of_pop_infected DESC
+	
+-- Breaking	data the continents with the highest death count per population
+SELECT continent, max(total_deaths) as total_death_count
+	FROM Public."CovidDeaths"
+	WHERE population IS NOT NULL and total_deaths IS NOT NULL and continent IS NOT NULL
+	Group By continent
+	Order By total_death_count DESC
+
+-- Looking at the countries with the highest Death Count per Population 
+SELECT location, max(total_deaths) as total_death_count
+	FROM Public."CovidDeaths"
+	WHERE population IS NOT NULL and total_deaths IS NOT NULL 
+	and continent IS NULL
+	Group By location
+	Order By total_death_count DESC
+	
+-- Break down of new cases across the globe on given date. 
+SELECT date, sum(new_cases) as number_of_new_cases, sum(new_deaths) as number_of_deaths
+	FROM Public."CovidDeaths"
+	WHERE new_cases IS NOT NULL
+	Group by date
+
+-- Joining Both Tables
+SELECT *
+	FROM Public."CovidDeaths" as dea
+	Join Public."CovidVaccinations" as vac
+	ON dea.location = vac.location and 
+	dea.date = vac.date
+	
+-- Looking at Total Population vs Total Vaccinations
+SELECT dea.continent, dea.location, dea.date, dea.population, vac.total_vaccinations
+	FROM Public."CovidDeaths" as dea
+	JOIN Public."CovidVaccinations" as vac
+	ON dea.location = vac.location
+	and dea.date = vac.date
+	WHERE dea.continent IS NOT NULL and vac.total_vaccinations IS NOT NULL
+	order by 2,3
+
+-- Create a Temp Table
+
+CREATE Table TotalPopTotalVac
+(
+	Continent varchar (250),
+	Location varchar (250),
+	Date date,
+	population numeric,
+	total_vaccinations numeric
+)
+
+INSERT INTO TotalPopTotalVac
+SELECT dea.continent, dea.location, dea.date, dea.population, cast(vac.total_vaccinations as numeric)
+	FROM Public."CovidDeaths" as dea
+	JOIN Public."CovidVaccinations" as vac
+	ON dea.location = vac.location and dea.date = vac.date 
+	WHERE dea.continent IS NOT NULL and vac.total_vaccinations IS NOT NULL
+	
+SELECT * 
+	FROM TotalPopTotalVac
+
+
+-- Get a rolling count of the Total Population vs New Vaccinations by Location
+
+SELECT dea.continent, dea.location, dea.date, dea.population, vac.new_vaccinations,
+	sum(new_vaccinations) OVER (Partition by dea.location Order By dea.location, dea.date) as rolling_people_vaccinated
+	FROM Public."CovidDeaths" as dea
+	JOIN Public."CovidVaccinations" as vac
+	ON dea.location = vac.location and dea.date = vac.date
+	WHERE dea.continent IS NOT NULL and vac.new_vaccinations IS NOT NULL
+	Order By 2,3
+	
+-- Create a Common Table Expressoin (CTE)
+
+with PopvsVac (Continent, location, date, population, new_vaccinations, rolling_people_vaccinated)
+	as
+	(
+	SELECT dea.continent, dea.location, dea.date, dea.population, vac.new_vaccinations,
+	sum(new_vaccinations) OVER (Partition by dea.location Order By dea.location, dea.date) as rolling_people_vaccinated
+	FROM Public."CovidDeaths" as dea
+	JOIN Public."CovidVaccinations" as vac
+	ON dea.location = vac.location and dea.date = vac.date
+	WHERE dea.continent IS NOT NULL and vac.new_vaccinations IS NOT NULL
+	)
+	
+SELECT *, (rolling_people_vaccinated/population)*100 as percentage_vaccinated
+FROM PopvsVac
+
+--Create a View for data visualizations later 
+
+CREATE View ContinentBreakdown as
+	SELECT dea.continent, dea.location, dea.date, dea.population, vac.total_vaccinations
+	FROM Public."CovidDeaths" as dea
+	JOIN Public."CovidVaccinations" as vac
+	ON dea.location = vac.location
+	and dea.date = vac.date
+	WHERE dea.continent IS NOT NULL and vac.total_vaccinations IS NOT NULL
+
+
+
+
+
+
+
+
+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
